@@ -1,0 +1,10 @@
+{"timestamp": "2025-11-24T15:34:42.950432+00:00", "packet_rate": 2122.4064, "unique_ips": 760, "avg_packet_size": 773.9889, "syn_count": 1194, "failed_conn_ratio": 0.192425, "entropy": 6.8895, "label": "DDoS"}
+{"timestamp": "2025-11-24T15:34:42.950828+00:00", "packet_rate": 2122.4064, "unique_ips": 760, "avg_packet_size": 773.9889, "syn_count": 1194, "failed_conn_ratio": 0.192425, "entropy": 6.8895, "label": "DDoS"}
+{"timestamp": "2025-11-24T15:34:42.951090+00:00", "packet_rate": 2122.4064, "unique_ips": 760, "avg_packet_size": 773.9889, "syn_count": 1194, "failed_conn_ratio": 0.192425, "entropy": 6.8895, "label": "DDoS"}
+{"timestamp": "2025-11-24T15:34:42.951326+00:00", "packet_rate": 1621.2648, "unique_ips": 794, "avg_packet_size": 212.3571, "syn_count": 1145, "failed_conn_ratio": 0.273723, "entropy": 5.015, "label": "DDoS"}
+{"timestamp": "2025-11-24T15:34:42.951554+00:00", "packet_rate": 1621.2648, "unique_ips": 794, "avg_packet_size": 212.3571, "syn_count": 1145, "failed_conn_ratio": 0.273723, "entropy": 5.015, "label": "DDoS"}
+{"timestamp": "2025-11-24T15:34:42.951797+00:00", "packet_rate": 1621.2648, "unique_ips": 794, "avg_packet_size": 212.3571, "syn_count": 1145, "failed_conn_ratio": 0.273723, "entropy": 5.015, "label": "DDoS"}
+{"timestamp": "2025-11-24T15:34:42.952026+00:00", "packet_rate": 1621.2648, "unique_ips": 794, "avg_packet_size": 212.3571, "syn_count": 1145, "failed_conn_ratio": 0.273723, "entropy": 5.015, "label": "DDoS"}
+{"timestamp": "2025-11-24T15:34:42.952252+00:00", "packet_rate": 1579.7862, "unique_ips": 763, "avg_packet_size": 548.0613, "syn_count": 1198, "failed_conn_ratio": 0.225488, "entropy": 5.4701, "label": "DDoS"}
+{"timestamp": "2025-11-24T15:34:42.952471+00:00", "packet_rate": 1579.7862, "unique_ips": 763, "avg_packet_size": 548.0613, "syn_count": 1198, "failed_conn_ratio": 0.225488, "entropy": 5.4701, "label": "DDoS"}
+{"timestamp": "2025-11-24T15:34:42.952696+00:00", "packet_rate": 1579.7862, "unique_ips": 763, "avg_packet_size": 548.0613, "syn_count": 1198, "failed_conn_ratio": 0.225488, "entropy": 5.4701, "label": "DDoS"}

@@ -1,0 +1,17 @@
+{
+  "created_at": "2025-11-24T13:57:13.866996Z",
+  "classes": [
+    "Normal",
+    "DDoS",
+    "PortScan",
+    "BruteForce"
+  ],
+  "features": [
+    "packet_rate",
+    "unique_ips",
+    "avg_packet_size",
+    "syn_count",
+    "failed_conn_ratio",
+    "entropy"
+  ]
+}
