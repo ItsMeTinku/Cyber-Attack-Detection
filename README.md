@@ -41,7 +41,7 @@ An intelligent cyber defense platform designed to detect suspicious digital atta
 
 ## 📖 Abstract
 
-Cyber Attack Detection System is an intelligent cybersecurity monitoring platform developed to identify suspicious attack patterns, unauthorized access attempts, malicious traffic behavior, and abnormal security events within a digital environment.
+Cyber Attack Detection System is an intelligent cybersecurity monitoring platform developed to identify suspicious attack patterns, unauthorized access attempts, malicious traffic behavior, and abnormal security events within a digital environment.and also give the acurate results with the help of nocap and wireshark a software that helps to track and capture the packet on the network 
 
 The project simulates a practical intrusion detection and cyber defense mechanism by collecting attack indicators, processing suspicious activity, and presenting visual threat analytics for rapid security assessment.
 
