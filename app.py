@@ -1,4 +1,4 @@
-# app.py — Professional Dashboard (final stable, patched)
+# app.py — Cyber Attack Detection Dashboard
 import streamlit as st
 import threading
 import time
@@ -358,7 +358,7 @@ with tabs[0]:
         tmp = df.copy()
         tmp["ts_dt"] = pd.to_datetime(tmp["timestamp"], unit="s")
         tmp.set_index("ts_dt", inplace=True)
-        counts = tmp["attack"].resample("10S").count().fillna(0)
+        counts = tmp["attack"].resample("10s").count().fillna(0)
         st.line_chart(counts)
 
 # Demo
