@@ -91,11 +91,11 @@ Upload any `.json` / `.jsonl` capture file from a previous session to re-classif
 
 ```
 ┌─────────────────────────────────────────────────────────┐
-│                    app.py (Streamlit UI)                 │
+│                    app.py (Streamlit UI)                │
 │                                                         │
 │  Sidebar Controls     Main Tabs (6)                     │
 │  ─────────────────    ──────────────────────────────    │
-│  ▶ Live / ⏹ Stop      Overview  │ Demo  │ Logs          │
+│  ▶ Live / ⏹ Stop      Overview  │ Demo  │ Logs         │
 │  🔄 Background         Visuals  │ Recs  │ Settings      │
 │  📂 Import JSONL                                        │
 │  🗑️ Clear Logs                                          │
@@ -105,11 +105,11 @@ Upload any `.json` / `.jsonl` capture file from a previous session to re-classif
            │                          │
            ▼                          ▼
 ┌──────────────────┐        ┌─────────────────────┐
-│  HybridCapture   │        │   Predictor          │
-│  ───────────────  │        │  ─────────────────   │
+│  HybridCapture   │        │   Predictor         │
+│  ─────────────── │        │  ────────────────   │
 │  PyShark (real)  │──────▶│  8% attack, 92% OK   │
-│     or           │        │  Risk + Confidence   │
-│  Simulated gen   │        │  per-class ranges    │
+│     or           │        │  Risk + Confidence  │
+│  Simulated gen   │        │  per-class ranges   │
 └──────────────────┘        └──────────┬──────────┘
                                         │
                     ┌───────────────────┼───────────────────┐
