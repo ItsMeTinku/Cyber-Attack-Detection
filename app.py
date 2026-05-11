@@ -1,4 +1,8 @@
-# app.py — Cyber Attack Detection Dashboard
+"""
+app.py  —  Cyber Attack Detection Dashboard
+Run:  streamlit run app.py
+"""
+
 import streamlit as st
 import threading
 import time
@@ -6,368 +10,512 @@ import json
 import os
 import queue
 import sqlite3
-import pandas as pd
+import random
 import numpy as np
+import pandas as pd
 from datetime import datetime
-from streamlit_autorefresh import st_autorefresh   # pip install streamlit-autorefresh
 
+# Windows beep (optional)
 try:
     import winsound
 except Exception:
     winsound = None
 
 from predict_helper import Predictor
-from hybrid_capture import HybridCapture
+from hybrid_capture  import HybridCapture
+from solution_engine import get_recommendations
 
-# -------------------------
-# CONFIG / PATHS
-# -------------------------
-BASE_DIR        = os.path.dirname(__file__)
-DB_PATH         = os.path.join(BASE_DIR, "logs.db")
-BACKGROUND_LOG  = os.path.join(BASE_DIR, "background_log.json")
-DEFAULT_INTERFACE = r"\Device\NPF_{8F331094-1393-4236-BE28-D817621F69E2}"
+# Check if PyShark + TShark are available
+# Do NOT call LiveCapture() here — fails without an interface and gives false negative
+import os as _os
+try:
+    import pyshark as _pyshark
+    _tshark_paths = [
+        "C:/Program Files/Wireshark/tshark.exe",
+        "C:/Program Files (x86)/Wireshark/tshark.exe",
+    ]
+    PYSHARK_OK = any(_os.path.exists(p) for p in _tshark_paths)
+except ImportError:
+    PYSHARK_OK = False
 
-# -------------------------
-# DATABASE
-# -------------------------
-def init_db():
+# ─────────────────────────────────────────
+#  PAGE CONFIG  (must be very first call)
+# ─────────────────────────────────────────
+st.set_page_config(
+    page_title="Cyber Attack Detection",
+    page_icon="🛡️",
+    layout="wide",
+)
+
+# ─────────────────────────────────────────
+#  PATHS
+# ─────────────────────────────────────────
+BASE_DIR   = os.path.dirname(os.path.abspath(__file__))
+DB_PATH    = os.path.join(BASE_DIR, "events.db")
+BG_LOG     = os.path.join(BASE_DIR, "background_log.jsonl")
+DEFAULT_IF = r"\Device\NPF_{8F331094-1393-4236-BE28-D817621F69E2}"
+
+# ─────────────────────────────────────────
+#  DATABASE  (one shared connection)
+# ─────────────────────────────────────────
+@st.cache_resource
+def get_db():
     conn = sqlite3.connect(DB_PATH, check_same_thread=False)
-    conn.cursor().execute("""
+    conn.execute("""
         CREATE TABLE IF NOT EXISTS events (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            timestamp REAL, timestamp_str TEXT, attack TEXT,
-            risk REAL, confidence REAL, src_port INTEGER,
-            dst_port INTEGER, packet_len INTEGER, mode TEXT, raw TEXT
+            id            INTEGER PRIMARY KEY AUTOINCREMENT,
+            ts            REAL,
+            ts_str        TEXT,
+            attack        TEXT,
+            risk          REAL,
+            confidence    REAL,
+            src_port      INTEGER,
+            dst_port      INTEGER,
+            packet_len    INTEGER,
+            mode          TEXT,
+            raw           TEXT
         )
     """)
     conn.commit()
     return conn
 
-DB_CONN = init_db()
+DB = get_db()
 
-def insert_event_db(rec):
-    DB_CONN.cursor().execute(
-        "INSERT INTO events (timestamp,timestamp_str,attack,risk,confidence,"
+def db_insert(r):
+    DB.execute(
+        "INSERT INTO events (ts,ts_str,attack,risk,confidence,"
         "src_port,dst_port,packet_len,mode,raw) VALUES (?,?,?,?,?,?,?,?,?,?)",
-        (rec["timestamp"], rec["timestamp_str"], rec["attack"], rec["risk"],
-         rec["confidence"], rec["src_port"], rec["dst_port"],
-         rec["packet_len"], rec["mode"], json.dumps(rec.get("raw", {})))
+        (r["ts"], r["ts_str"], r["attack"], r["risk"], r["confidence"],
+         r["src_port"], r["dst_port"], r["packet_len"], r["mode"],
+         json.dumps(r.get("raw", {})))
     )
-    DB_CONN.commit()
+    DB.commit()
 
-def query_recent(limit=200):
+def db_query(n=300):
     return pd.read_sql_query(
-        f"SELECT * FROM events ORDER BY timestamp DESC LIMIT {int(limit)}", DB_CONN)
+        f"SELECT * FROM events ORDER BY ts DESC LIMIT {n}", DB
+    )
 
-# -------------------------
-# Utilities
-# -------------------------
-def now_ts():  return time.time()
-def ts_str(ts=None):
-    return datetime.fromtimestamp(ts or now_ts()).strftime("%Y-%m-%d %H:%M:%S")
+def db_clear():
+    DB.execute("DELETE FROM events")
+    DB.commit()
+
+# ─────────────────────────────────────────
+#  SESSION STATE DEFAULTS
+# ─────────────────────────────────────────
+def ss(key, default):
+    if key not in st.session_state:
+        st.session_state[key] = default
+
+ss("pkt_queue",  queue.Queue())
+ss("stop_evt",   threading.Event())
+ss("thread",     None)
+ss("mode",       None)          # None | "live" | "demo" | "background"
+ss("interface",  DEFAULT_IF)
+ss("bg_on",      False)
+ss("predictor",  Predictor())
+
+P = st.session_state["predictor"]
+
+# ─────────────────────────────────────────
+#  HELPERS
+# ─────────────────────────────────────────
+def now():     return time.time()
+def now_str(): return datetime.fromtimestamp(now()).strftime("%Y-%m-%d %H:%M:%S")
 
 def beep():
     if winsound:
-        try: winsound.Beep(1000, 200); winsound.Beep(800, 120)
+        try: winsound.Beep(1000, 200)
         except: pass
 
-# -------------------------
-# Page config
-# -------------------------
-st.set_page_config(page_title="Cyber Dashboard", layout="wide")
-
-# -------------------------
-# Session state defaults
-# -------------------------
-defaults = {
-    "queue":         queue.Queue(),
-    "stop_event":    threading.Event(),
-    "worker_thread": None,
-    "mode":          None,
-    "interface":     DEFAULT_INTERFACE,
-    "background_on": False,
-    "predictor":     Predictor(),
-}
-for k, v in defaults.items():
-    if k not in st.session_state:
-        st.session_state[k] = v
-
-predictor = st.session_state["predictor"]
-
-# =========================================================
-# AUTO-REFRESH — uses streamlit-autorefresh (JS timer, no
-# sleep, no blocking). Only runs when a worker is active.
-# =========================================================
-if st.session_state["mode"] is not None:
-    st_autorefresh(interval=1500, key="live_refresh")
-
-# -------------------------
-# Make record
-# -------------------------
-def make_record_from_packet(packet_dict, mode="live"):
+def make_record(pkt: dict, mode: str) -> dict:
+    P.set_mode("demo" if mode == "demo" else "live")
     features = {
-        "packet_size": int(packet_dict.get("packet_size", packet_dict.get("packet_len", 0) or 0)),
-        "src_port":    int(packet_dict.get("src_port",   packet_dict.get("sport", 0) or 0)),
-        "dst_port":    int(packet_dict.get("dst_port",   packet_dict.get("dport", 0) or 0)),
-        "protocol":    packet_dict.get("protocol", "TCP"),
-        "source":      packet_dict.get("source", "live"),
-        "syn_flag":    int(packet_dict.get("syn_flag", packet_dict.get("syn", 0) or 0)),
-        "ack_flag":    int(packet_dict.get("ack_flag", packet_dict.get("ack", 0) or 0)),
-        "fin_flag":    int(packet_dict.get("fin_flag", packet_dict.get("fin", 0) or 0)),
+        "packet_size": int(pkt.get("packet_size", pkt.get("packet_len", 0) or 0)),
+        "src_port":    int(pkt.get("src_port", 0) or 0),
+        "dst_port":    int(pkt.get("dst_port", 0) or 0),
+        "protocol":    pkt.get("protocol", "TCP"),
+        "source":      pkt.get("source", mode),
     }
-    predictor.set_mode(mode if mode in ("demo", "live") else "live")
-    pred    = predictor.predict(features)
-    attack  = pred.get("attack") or pred.get("attack_type") or "unknown"
+    pred = P.predict(features)
     return {
-        "timestamp":     now_ts(), "timestamp_str": ts_str(),
-        "attack":        attack,
-        "risk":          round(float(pred.get("risk", 0.0)), 3),
-        "confidence":    round(float(pred.get("confidence", 0.0)), 3),
-        "src_port":      int(features["src_port"]),
-        "dst_port":      int(features["dst_port"]),
-        "packet_len":    int(features["packet_size"]),
-        "mode":          mode,
-        "raw":           {**packet_dict, **{"features": features}},
+        "ts":         now(),
+        "ts_str":     now_str(),
+        "attack":     pred["attack"],
+        "risk":       round(pred["risk"], 3),
+        "confidence": round(pred["confidence"], 3),
+        "src_port":   features["src_port"],
+        "dst_port":   features["dst_port"],
+        "packet_len": features["packet_size"],
+        "mode":       mode,
+        "raw":        {**pkt, **features},
     }
 
-# -------------------------
-# Workers
-# -------------------------
-def live_capture_worker(interface, q, stop_event):
+# ─────────────────────────────────────────
+#  WORKER THREADS
+# ─────────────────────────────────────────
+def _live_worker(iface, q, stop):
     try:
-        hc = HybridCapture(interface=interface)
-        for pkt in hc.capture_generator():
-            if stop_event.is_set(): break
-            q.put(("record", make_record_from_packet(pkt, "live")))
+        for pkt in HybridCapture(iface).capture_generator():
+            if stop.is_set(): break
+            q.put(make_record(pkt, "live"))
     except Exception as e:
-        q.put(("error", f"Live capture error: {e}"))
-    finally:
-        q.put(("stopped", "live"))
+        q.put({"__error__": str(e)})
 
-def background_capture_worker(interface, q, stop_event):
+def _bg_worker(iface, q, stop):
     try:
-        hc = HybridCapture(interface=interface)
-        for pkt in hc.capture_generator():
-            if stop_event.is_set(): break
-            rec = make_record_from_packet(pkt, "background")
+        for pkt in HybridCapture(iface).capture_generator():
+            if stop.is_set(): break
+            rec = make_record(pkt, "background")
             try:
-                open(BACKGROUND_LOG, "a").write(json.dumps({
-                    "timestamp": rec["timestamp"], "prediction": rec["attack"],
-                    "risk_score": rec["risk"],     "confidence": rec["confidence"],
-                }) + "\n")
+                with open(BG_LOG, "a") as f:
+                    f.write(json.dumps({"ts": rec["ts"], "attack": rec["attack"],
+                                        "risk": rec["risk"]}) + "\n")
             except: pass
-            q.put(("record", rec))
+            q.put(rec)
     except Exception as e:
-        q.put(("error", f"Background capture error: {e}"))
-    finally:
-        q.put(("stopped", "background"))
+        q.put({"__error__": str(e)})
 
-def demo_worker(q, stop_event):
-    import random
-    while not stop_event.is_set():
+def _demo_worker(q, stop):
+    protos = ["TCP", "UDP", "ICMP"]
+    ports  = [80, 443, 22, 3306, 8080, 53]
+    while not stop.is_set():
         pkt = {
             "packet_size": int(np.random.randint(40, 1500)),
             "src_port":    int(np.random.randint(1024, 65535)),
-            "dst_port":    int(np.random.choice([80, 443, 22, 3306, 8080, 53])),
-            "protocol":    random.choice(["TCP", "UDP", "ICMP"]),
+            "dst_port":    int(random.choice(ports)),
+            "protocol":    random.choice(protos),
             "source":      "demo",
         }
-        q.put(("record", make_record_from_packet(pkt, "demo")))
+        q.put(make_record(pkt, "demo"))
         time.sleep(0.5)
-    q.put(("stopped", "demo"))
 
-# -------------------------
-# Stop helper (no sleep on main thread)
-# -------------------------
-def stop_running_worker():
-    st.session_state["stop_event"].set()
-    st.session_state.update({
-        "mode": None,
-        "stop_event":    threading.Event(),
-        "worker_thread": None,
-    })
-
-def start_worker(target, args):
+def _start_thread(target, args):
     t = threading.Thread(target=target, args=args, daemon=True)
-    st.session_state["worker_thread"] = t
+    st.session_state["thread"] = t
     t.start()
 
-# =========================================================
-# SIDEBAR
-# =========================================================
-st.sidebar.title("Controls")
+def _stop():
+    st.session_state["stop_evt"].set()
+    st.session_state["stop_evt"] = threading.Event()
+    st.session_state["thread"]   = None
+    st.session_state["mode"]     = None
 
-iface_input = st.sidebar.text_input("Capture Interface (NPF)", value=st.session_state["interface"])
-if st.sidebar.button("Apply Interface"):
-    st.session_state["interface"] = iface_input
-    st.sidebar.success("Interface saved")
-    st.rerun()
+# ─────────────────────────────────────────
+#  DRAIN QUEUE  (called every render cycle)
+# ─────────────────────────────────────────
+def drain():
+    q = st.session_state["pkt_queue"]
+    n, highs = 0, []
+    while True:
+        try:
+            item = q.get_nowait()
+        except queue.Empty:
+            break
+        if isinstance(item, dict) and "__error__" in item:
+            st.error(f"Worker error: {item['__error__']}")
+            q.task_done()
+            continue
+        db_insert(item)
+        if item["risk"] >= 0.8:
+            highs.append(item)
+            beep()
+        n += 1
+        q.task_done()
+    return n, highs
 
-live_toggle       = st.sidebar.button("Start / Stop Live Monitoring")
-background_toggle = st.sidebar.checkbox("Background Tracking", value=st.session_state["background_on"])
-uploaded          = st.sidebar.file_uploader("Predict From File (JSONL)", type=["json", "jsonl"])
+# ─────────────────────────────────────────
+#  SIDEBAR
+# ─────────────────────────────────────────
+with st.sidebar:
+    st.title("🛡️ Controls")
+    st.divider()
 
-if uploaded is not None:
-    added = 0
-    for line in uploaded.getvalue().decode("utf-8").splitlines():
-        if line.strip():
-            insert_event_db(make_record_from_packet(json.loads(line), "file"))
-            added += 1
-    st.sidebar.success(f"Imported {added} records")
+    iface = st.text_input("Network Interface (NPF)", st.session_state["interface"])
+    if st.button("💾 Save Interface"):
+        st.session_state["interface"] = iface
+        st.success("Saved")
 
-if st.sidebar.button("Reset Logs"):
-    try: st.session_state["stop_event"].set()
-    except: pass
-    DB_CONN.cursor().execute("DELETE FROM events"); DB_CONN.commit()
-    st.session_state.update({
-        "queue": queue.Queue(), "mode": None, "worker_thread": None,
-        "stop_event": threading.Event(), "background_on": False,
-    })
-    try: predictor.reset_logs()
-    except: pass
-    st.sidebar.success("Logs reset.")
+    st.divider()
+    st.subheader("Monitoring")
 
-# =========================================================
-# WORKER MANAGEMENT
-# =========================================================
-q = st.session_state["queue"]
-
-if live_toggle:
-    stop_running_worker()
-    if st.session_state.get("_was_live") != True:   # toggle on
+    c1, c2 = st.columns(2)
+    if c1.button("▶ Live", use_container_width=True):
+        _stop()
         st.session_state["mode"] = "live"
-        start_worker(live_capture_worker,
-                     (st.session_state["interface"], q, st.session_state["stop_event"]))
-        st.session_state["_was_live"] = True
+        _start_thread(_live_worker,
+                      (st.session_state["interface"],
+                       st.session_state["pkt_queue"],
+                       st.session_state["stop_evt"]))
+
+    if c2.button("⏹ Stop", use_container_width=True):
+        _stop()
+        st.info("Stopped.")
+
+    bg = st.toggle("Background Tracking", value=st.session_state["bg_on"])
+    if bg != st.session_state["bg_on"]:
+        st.session_state["bg_on"] = bg
+        if bg:
+            _stop()
+            st.session_state["mode"] = "background"
+            _start_thread(_bg_worker,
+                          (st.session_state["interface"],
+                           st.session_state["pkt_queue"],
+                           st.session_state["stop_evt"]))
+        else:
+            _stop()
+
+    st.divider()
+    uploaded = st.file_uploader("📂 Import JSONL File", type=["json", "jsonl"])
+    if uploaded:
+        added = 0
+        for line in uploaded.getvalue().decode().splitlines():
+            line = line.strip()
+            if line:
+                db_insert(make_record(json.loads(line), "file"))
+                added += 1
+        st.success(f"Imported {added} records")
+
+    st.divider()
+    if st.button("🗑️ Clear All Logs", use_container_width=True):
+        _stop()
+        db_clear()
+        st.session_state["pkt_queue"] = queue.Queue()
+        P.reset_logs()
+        st.success("Logs cleared")
+
+    # Status badge
+    st.divider()
+    mode = st.session_state["mode"]
+    if mode:
+        st.success(f"🟢 Running — {mode.upper()} mode")
     else:
-        st.session_state["_was_live"] = False
-else:
-    if st.session_state["mode"] == "live":
-        st.session_state["_was_live"] = True
-    elif st.session_state["mode"] != "live":
-        st.session_state["_was_live"] = False
+        st.warning("🔴 Idle")
 
-if background_toggle != st.session_state["background_on"]:
-    st.session_state["background_on"] = background_toggle
-    if background_toggle:
-        stop_running_worker()
-        st.session_state["mode"] = "background"
-        start_worker(background_capture_worker,
-                     (st.session_state["interface"], q, st.session_state["stop_event"]))
+    # Data source indicator
+    st.divider()
+    st.subheader("📡 Data Source")
+    if PYSHARK_OK:
+        st.success("✅ PyShark ready — Live = REAL packets")
     else:
-        stop_running_worker()
+        st.error("⚠️ PyShark unavailable — Live = SIMULATED")
+        st.caption("Run find_interface.py to diagnose")
 
-# =========================================================
-# DRAIN QUEUE
-# =========================================================
-new_count, alerts = 0, []
-while True:
-    try:
-        tag, payload = q.get_nowait()
-    except queue.Empty:
-        break
-    if tag == "record":
-        insert_event_db(payload)
-        if payload["risk"] >= 0.8:
-            alerts.append(payload); beep()
-        new_count += 1
-    elif tag == "error":
-        st.error(payload)
-    elif tag == "stopped":
-        st.info(f"Worker stopped: {payload}")
-    q.task_done()
+# ─────────────────────────────────────────
+#  DRAIN + ALERTS  (before rendering)
+# ─────────────────────────────────────────
+new_n, highs = drain()
+for h in highs:
+    st.warning(f"🚨 HIGH RISK — **{h['attack'].upper()}** | risk={h['risk']} | "
+               f"src_port={h['src_port']} dst_port={h['dst_port']}")
 
-for a in alerts:
-    st.warning(f"⚠ HIGH RISK: {a['attack']} (risk={a['risk']})")
+# ─────────────────────────────────────────
+#  MAIN TABS
+# ─────────────────────────────────────────
+st.title("🛡️ Cyber Attack Detection Dashboard")
 
-# =========================================================
-# MAIN LAYOUT
-# =========================================================
-st.title("🛡️ Cyber Attack Detection")
-c1, c2, c3 = st.columns(3)
-c1.info(f"**Mode:** {st.session_state['mode'] or 'idle'}")
-c2.info(f"**Interface:** {st.session_state['interface']}")
-c3.info(f"**New records this run:** {new_count}")
+tab_overview, tab_demo, tab_logs, tab_visuals, tab_recs, tab_settings = st.tabs(
+    ["📊 Overview", "🎮 Demo", "📋 Logs", "📈 Visuals", "💡 Recommendations", "⚙️ Settings"]
+)
 
-tabs = st.tabs(["Overview", "Demo", "Logs", "Visuals", "Settings"])
-
-with tabs[0]:
-    st.subheader("Overview")
-    df    = query_recent(500)
+# ── OVERVIEW ──────────────────────────────
+with tab_overview:
+    df = db_query(300)
     total = len(df)
-    m1, m2, m3, m4 = st.columns(4)
-    m1.metric("Total events", total)
+
+    m1, m2, m3, m4, m5 = st.columns(5)
+    m1.metric("Total Events", total)
+    m5.metric("New This Cycle", new_n)
+
     if total > 0:
         last = df.iloc[0]
         m2.metric("Last Attack",     last["attack"])
         m3.metric("Last Risk",       f"{last['risk']:.2f}")
         m4.metric("Last Confidence", f"{last['confidence']:.2f}")
-    else:
-        m2.metric("Last Attack","—"); m3.metric("Last Risk","—"); m4.metric("Last Confidence","—")
-    if total > 0:
+
+        # Attack counts
+        st.subheader("Attack Distribution")
+        counts = df["attack"].value_counts().reset_index()
+        counts.columns = ["Attack", "Count"]
+        st.bar_chart(counts.set_index("Attack"))
+
+        # Timeline
+        st.subheader("Events Over Time")
         tmp = df.copy()
-        tmp["ts_dt"] = pd.to_datetime(tmp["timestamp"], unit="s")
-        tmp.set_index("ts_dt", inplace=True)
-        st.line_chart(tmp["attack"].resample("10s").count().fillna(0))
-
-with tabs[1]:
-    st.subheader("Demo Mode")
-    d1, d2 = st.columns(2)
-    if d1.button("Start Demo"):
-        stop_running_worker()
-        st.session_state["mode"] = "demo"
-        start_worker(demo_worker, (q, st.session_state["stop_event"]))
-    if d2.button("Stop Demo"):
-        if st.session_state["mode"] == "demo":
-            stop_running_worker()
-            st.success("Demo stopped")
-    st.write("Demo mode generates simulated attack traffic for testing charts.")
-    st.info(f"Current mode: {st.session_state['mode'] or 'idle'}")
-
-with tabs[2]:
-    st.subheader("All Logs (most recent first)")
-    df = query_recent(500)
-    if len(df) == 0:
-        st.info("No logs yet.")
+        tmp["ts_dt"] = pd.to_datetime(tmp["ts"], unit="s")
+        tmp = tmp.set_index("ts_dt").sort_index()
+        st.line_chart(tmp["attack"].resample("10s").count().rename("Events / 10s"))
+        # Data source clarity
+        st.divider()
+        st.subheader("📡 Data Source Status")
+        if PYSHARK_OK:
+            real_pkts = df[df["mode"] == "live"]
+            sim_pkts  = df[df["mode"] == "demo"]
+            st.success(f"✅ PyShark connected — capturing REAL network packets from your NIC")
+            col1, col2 = st.columns(2)
+            col1.metric("Real (live) packets",  len(real_pkts))
+            col2.metric("Demo (simulated) packets", len(sim_pkts))
+        else:
+            st.warning("⚠️ PyShark not available — all live packets are SIMULATED.")
+            st.markdown("""
+**To get real data:**
+1. Make sure Wireshark + Npcap are installed
+2. Run `python find_interface.py` (as Administrator) to get your interface name
+3. Paste the interface into the sidebar and click Save
+4. Restart the app as Administrator
+""")
     else:
-        st.dataframe(df[["timestamp_str","attack","risk","confidence",
-                          "src_port","dst_port","packet_len","mode"]])
-        st.download_button("Download logs CSV",
-                           df.to_csv(index=False).encode(), "live_attacks.csv", "text/csv")
-        idx = st.number_input("Row index", min_value=0, max_value=max(0, len(df)-1), value=0)
-        sel = df.iloc[int(idx)]
-        st.json({"timestamp": sel["timestamp_str"], "attack": sel["attack"],
-                 "risk": sel["risk"], "confidence": sel["confidence"],
-                 "src_port": sel["src_port"], "dst_port": sel["dst_port"],
-                 "packet_len": sel["packet_len"],
-                 "raw": json.loads(sel["raw"]) if isinstance(sel["raw"], str) else sel["raw"]})
+        st.info("No data yet — start Live or Demo mode from the sidebar.")
 
-with tabs[3]:
-    st.subheader("Visualizations")
-    df = query_recent(500)
+# ── DEMO ──────────────────────────────────
+with tab_demo:
+    st.subheader("🎮 Demo Mode")
+    st.write("Simulates realistic attack traffic so you can see the dashboard in action.")
+
+    d1, d2 = st.columns(2)
+    if d1.button("▶ Start Demo", use_container_width=True):
+        _stop()
+        st.session_state["mode"] = "demo"
+        _start_thread(_demo_worker,
+                      (st.session_state["pkt_queue"],
+                       st.session_state["stop_evt"]))
+        st.success("Demo started! Charts will update every second.")
+
+    if d2.button("⏹ Stop Demo", use_container_width=True):
+        if st.session_state["mode"] == "demo":
+            _stop()
+            st.success("Demo stopped.")
+
+    st.info(f"Current mode: **{st.session_state['mode'] or 'idle'}**")
+
+    if st.session_state["mode"] == "demo":
+        df = db_query(50)
+        if len(df) > 0:
+            st.subheader("Live Feed (last 50 packets)")
+            st.dataframe(
+                df[["ts_str","attack","risk","confidence","src_port","dst_port","protocol" if "protocol" in df.columns else "mode"]].head(20),
+                use_container_width=True,
+            )
+
+# ── LOGS ──────────────────────────────────
+with tab_logs:
+    st.subheader("📋 Event Log")
+    df = db_query(500)
+    if len(df) == 0:
+        st.info("No events recorded yet.")
+    else:
+        cols_show = ["ts_str","attack","risk","confidence","src_port","dst_port","packet_len","mode"]
+        cols_show = [c for c in cols_show if c in df.columns]
+        st.dataframe(df[cols_show], use_container_width=True, height=400)
+
+        st.download_button(
+            "⬇️ Download CSV",
+            df.to_csv(index=False).encode(),
+            "attack_log.csv",
+            "text/csv",
+        )
+
+        st.subheader("Row Detail")
+        idx = st.number_input("Row index", 0, max(0, len(df)-1), 0)
+        row = df.iloc[int(idx)]
+        st.json({
+            "timestamp":  row["ts_str"],
+            "attack":     row["attack"],
+            "risk":       row["risk"],
+            "confidence": row["confidence"],
+            "src_port":   row["src_port"],
+            "dst_port":   row["dst_port"],
+            "packet_len": row["packet_len"],
+            "mode":       row["mode"],
+        })
+
+# ── VISUALS ───────────────────────────────
+with tab_visuals:
+    st.subheader("📈 Visualizations")
+    df = db_query(400)
     if len(df) == 0:
         st.info("No data yet.")
     else:
+        col_a, col_b = st.columns(2)
+
+        with col_a:
+            st.write("**Risk Score Over Time**")
+            r = df.head(150).iloc[::-1].reset_index(drop=True)
+            st.line_chart(r["risk"], height=220)
+
+        with col_b:
+            st.write("**Confidence Over Time**")
+            st.line_chart(r["confidence"], height=220)
+
+        st.write("**Attack Type Breakdown**")
         top = df["attack"].value_counts().reset_index()
-        top.columns = ["attack", "count"]
-        st.bar_chart(top.set_index("attack"))
-        recent = df.head(200).iloc[::-1]
-        if not recent.empty:
-            st.line_chart(recent["risk"])
+        top.columns = ["Attack", "Count"]
+        st.bar_chart(top.set_index("Attack"), height=250)
+
+        st.write("**Port Traffic Heatmap (binned)**")
         heat = df.copy()
         heat["src_bin"] = (heat["src_port"] // 1000) * 1000
         heat["dst_bin"] = (heat["dst_port"] // 1000) * 1000
-        st.write("Port-bin heat sample:")
-        st.dataframe(heat.groupby(["src_bin","dst_bin"]).size().reset_index(name="count").head(50))
+        pivot = heat.groupby(["src_bin","dst_bin"]).size().reset_index(name="count")
+        st.dataframe(pivot.head(40), use_container_width=True)
 
-with tabs[4]:
-    st.subheader("Settings")
-    st.write("Predictor loaded:", hasattr(predictor, "predict"))
-    try: st.write("Classes:", list(predictor.encoder.classes_))
-    except: pass
-    if st.button("Retrain model"):
-        try:
-            from predict_helper import train_model; train_model()
-            st.success("Retraining done.")
-        except Exception as e:
-            st.error(f"Retrain failed: {e}")
+# ── RECOMMENDATIONS ───────────────────────
+with tab_recs:
+    st.subheader("💡 Action Recommendations")
+    df = db_query(20)
+    if len(df) == 0:
+        st.info("No events to analyse yet.")
+    else:
+        last_attack = df.iloc[0]["attack"]
+        rec = get_recommendations(last_attack)
+
+        color = "🔴" if df.iloc[0]["risk"] >= 0.8 else "🟡" if df.iloc[0]["risk"] >= 0.5 else "🟢"
+        st.markdown(f"### {color} {rec['message']}")
+        st.markdown(f"**Last detected:** `{last_attack.upper()}` | "
+                    f"Risk: `{df.iloc[0]['risk']:.2f}` | "
+                    f"Confidence: `{df.iloc[0]['confidence']:.2f}`")
+        st.divider()
+        st.subheader("Recommended Actions")
+        for i, step in enumerate(rec["steps"], 1):
+            st.markdown(f"**{i}.** {step}")
+
+        st.divider()
+        st.subheader("Recent Threat Summary")
+        summary = df["attack"].value_counts().reset_index()
+        summary.columns = ["Attack Type", "Count"]
+        st.dataframe(summary, use_container_width=True)
+
+# ── SETTINGS ──────────────────────────────
+with tab_settings:
+    st.subheader("⚙️ Settings")
+    st.write("**Predictor status:**", "✅ Loaded" if hasattr(P, "predict") else "❌ Not loaded")
+    st.write("**Attack classes:**", ", ".join(P.ATTACKS))
+    st.write("**DB path:**", DB_PATH)
+    st.write("**Background log:**", BG_LOG)
+    total_rows = DB.execute("SELECT COUNT(*) FROM events").fetchone()[0]
+    st.write("**Total DB rows:**", total_rows)
+
+    st.divider()
+    st.write("**Interface:**", st.session_state["interface"])
+    st.write("**Current mode:**", st.session_state["mode"] or "idle")
+
+# ─────────────────────────────────────────
+#  AUTO-REFRESH  ← the key fix
+#  Uses st.fragment so only this small
+#  section re-runs, keeping the browser
+#  responsive. Falls back to plain rerun.
+# ─────────────────────────────────────────
+if st.session_state["mode"] is not None:
+    try:
+        # Streamlit ≥ 1.37 — fragment with run_every keeps main page alive
+        @st.fragment(run_every=1)
+        def _ticker():
+            n, hs = drain()
+            if n:
+                st.toast(f"📡 {n} new packet(s) received")
+        _ticker()
+    except AttributeError:
+        # Older Streamlit — short sleep then full rerun
+        # 0.8s is below browser timeout threshold
+        time.sleep(0.8)
+        st.rerun()
