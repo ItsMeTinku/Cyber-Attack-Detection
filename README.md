@@ -4,6 +4,8 @@
 
 **A real-time network threat monitoring system built with Python & Streamlit**
 
+![Dashboard Preview](dashboard_preview.png)
+
 [![Python](https://img.shields.io/badge/Python-3.8%2B-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://python.org)
 [![Streamlit](https://img.shields.io/badge/Streamlit-1.30%2B-FF4B4B?style=for-the-badge&logo=streamlit&logoColor=white)](https://streamlit.io)
 [![SQLite](https://img.shields.io/badge/SQLite-003B57?style=for-the-badge&logo=sqlite&logoColor=white)](https://sqlite.org)
@@ -91,11 +93,11 @@ Upload any `.json` / `.jsonl` capture file from a previous session to re-classif
 
 ```
 ┌─────────────────────────────────────────────────────────┐
-│                    app.py (Streamlit UI)                │
+│                    app.py (Streamlit UI)                 │
 │                                                         │
 │  Sidebar Controls     Main Tabs (6)                     │
 │  ─────────────────    ──────────────────────────────    │
-│  ▶ Live / ⏹ Stop      Overview  │ Demo  │ Logs         │
+│  ▶ Live / ⏹ Stop      Overview  │ Demo  │ Logs          │
 │  🔄 Background         Visuals  │ Recs  │ Settings      │
 │  📂 Import JSONL                                        │
 │  🗑️ Clear Logs                                          │
@@ -105,11 +107,11 @@ Upload any `.json` / `.jsonl` capture file from a previous session to re-classif
            │                          │
            ▼                          ▼
 ┌──────────────────┐        ┌─────────────────────┐
-│  HybridCapture   │        │   Predictor         │
-│  ─────────────── │        │  ────────────────   │
+│  HybridCapture   │        │   Predictor          │
+│  ───────────────  │        │  ─────────────────   │
 │  PyShark (real)  │──────▶│  8% attack, 92% OK   │
-│     or           │        │  Risk + Confidence  │
-│  Simulated gen   │        │  per-class ranges   │
+│     or           │        │  Risk + Confidence   │
+│  Simulated gen   │        │  per-class ranges    │
 └──────────────────┘        └──────────┬──────────┘
                                         │
                     ┌───────────────────┼───────────────────┐
