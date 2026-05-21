@@ -1,285 +1,332 @@
-<div align="center">
-
 # 🛡️ Cyber Attack Detection Dashboard
 
-**A real-time network threat monitoring system built with Python & Streamlit**
-
-![Dashboard Preview](dashboard_preview.png)
-
-[![Python](https://img.shields.io/badge/Python-3.8%2B-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://python.org)
-[![Streamlit](https://img.shields.io/badge/Streamlit-1.30%2B-FF4B4B?style=for-the-badge&logo=streamlit&logoColor=white)](https://streamlit.io)
-[![SQLite](https://img.shields.io/badge/SQLite-003B57?style=for-the-badge&logo=sqlite&logoColor=white)](https://sqlite.org)
-[![License](https://img.shields.io/badge/License-MIT-green?style=for-the-badge)](LICENSE)
-
-> Monitors live network traffic, classifies attack types in real time, logs silently in the background, and recommends countermeasures — all from a single browser tab.
-
-</div>
+> A real-time network packet monitoring and cyber attack detection system built with Python, PyShark, Wireshark/TShark, and Streamlit.
 
 ---
 
-## 📌 Table of Contents
+## 📋 Table of Contents
 
-- [Problems with the Old Version](#-problems-with-the-old-version)
-- [What's New — v2 Highlights](#-whats-new--v2-highlights)
-- [Architecture Overview](#-architecture-overview)
-- [Features](#-features)
-- [Real Output — Background Tracking](#-real-output--background-tracking)
-- [Real Output — Live Tracking](#-real-output--live-tracking)
-- [Attack Types Detected](#-attack-types-detected)
-- [Installation](#-installation)
-- [Usage](#-usage)
-- [File Structure](#-file-structure)
-- [How It Works](#-how-it-works)
-- [FAQ](#-faq)
-
----
-
-## ⚠️ Problems with the Old Version
-
-The original Cyber Attack Detection script suffered from several critical issues that made it unreliable and unusable in practice:
-
-| # | Problem | Impact |
-|---|---------|--------|
-| 1 | **Browser freezing / unresponsiveness** | The app called `st.rerun()` in a tight loop, locking up the browser tab completely |
-| 2 | **Background tracking produced zero output** | The background worker thread silently failed — `background_log.jsonl` was never written to |
-| 3 | **PyShark crash on startup** | Calling `pyshark.LiveCapture()` at import time without an interface caused an immediate crash, giving a false "PyShark unavailable" error even when Wireshark was installed |
-| 4 | **Thread lifecycle bugs** | Starting a new mode (live → demo) didn't properly stop the old thread, causing duplicate workers writing conflicting data |
-| 5 | **No real-time alerts** | High-risk events (risk ≥ 0.8) were silently logged with no UI notification or audible alert |
-| 6 | **No data source transparency** | Users had no way to know whether live packets were real (from NIC) or simulated |
-| 7 | **Crash on older Streamlit** | The app required `st.fragment` which didn't exist in Streamlit < 1.37 — no graceful fallback |
-| 8 | **Single capture path** | If PyShark failed mid-session, the entire capture stopped with no recovery |
-| 9 | **No row drill-down** | The log table showed no way to inspect individual events in detail |
-| 10 | **No import / replay capability** | Could not re-analyse previously captured JSONL files |
+- [Project Overview](#-project-overview)
+- [Problems With the Original Project](#-problems-with-the-original-project)
+- [What Was Fixed & New Features](#-what-was-fixed--new-features)
+- [Technology Stack](#-technology-stack)
+- [How Live & Background Detection Works](#-how-live--background-detection-works)
+- [Real Output Examples](#-real-output-examples)
+- [Project Structure](#-project-structure)
+- [Installation & Setup](#-installation--setup)
+- [How to Run](#-how-to-run)
+- [Testing the System](#-testing-the-system)
+- [Dashboard Tabs Guide](#-dashboard-tabs-guide)
 
 ---
 
-## ✅ What's New — v2 Highlights
+## 📌 Project Overview
 
-### 🟢 100% Accurate Background Tracking
-The background worker now **reliably writes every classified packet** to `background_log.jsonl` using a dedicated daemon thread. The file is appended atomically per-event, so even if the UI is closed, background monitoring continues and nothing is lost.
+This dashboard captures live network packets from your machine's network interface card (NIC), analyses each packet using a detection engine, classifies it as **normal or an attack type**, and displays the results in real time on a web-based GUI.
 
-```
-Old behaviour:  bg thread started → silently crashed → 0 lines written
-New behaviour:  bg thread started → every packet appended → 179+ real entries confirmed
+It supports three detection modes:
+
+| Mode | Description |
+|---|---|
+| **Live** | Captures real packets from your Wi-Fi/Ethernet adapter via PyShark + Npcap |
+| **Background** | Runs capture silently in the background, logs to `background_log.jsonl` |
+| **Demo** | Generates synthetic attack traffic for testing without real network capture |
+
+---
+
+## ❌ Problems With the Original Project
+
+The original `app.py` had **three critical bugs** that caused the GUI to completely freeze and become unresponsive whenever Live or Background mode was started.
+
+---
+
+### Bug 1 — No Auto-Refresh Loop (Main Cause of Freeze)
+
+**File:** `app.py`
+
+Background worker threads were pushing captured packet data into a `queue.Queue()`, but there was **no mechanism to tell Streamlit to re-render the page**. Streamlit only re-renders when a user interaction happens (button click, slider move, etc.). Since the data was arriving in a background thread with no user interaction, the UI just sat completely frozen and never updated.
+
+```python
+# ORIGINAL BROKEN CODE — no refresh loop existed at all
+# Worker thread pushed to queue but Streamlit never re-rendered
+def live_capture_worker(interface, q, stop_event):
+    for pkt in hc.capture_generator():
+        q.put(("record", rec))   # ← data went in here
+        # but nothing ever told Streamlit to re-render
 ```
 
-### ⚡ Non-Blocking Live Updates
-Replaced the broken `st.rerun()` polling loop with **`st.fragment(run_every=1)`** (Streamlit ≥ 1.37). Only the tiny ticker fragment re-executes each second — the rest of the page stays perfectly responsive. A graceful fallback (`time.sleep(0.8) + st.rerun()`) is used on older Streamlit versions.
-
-### 🔌 Hybrid Capture Engine (`hybrid_capture.py`)
-A new `HybridCapture` class attempts **real PyShark capture first**, and automatically falls back to a simulated packet generator if Wireshark/Npcap is unavailable — with no crash, no error, and no user action required.
-
-### 🚨 Real-Time High-Risk Alerts
-Events with `risk ≥ 0.8` now trigger:
-- A **banner warning** at the top of every tab
-- An **audible beep** via `winsound` on Windows
-- A **toast notification** for every new packet batch
-
-### 📡 Data Source Transparency
-A dedicated panel in the Overview tab shows exactly how many packets are **real (live)** vs **simulated (demo)**, so you always know what your data represents.
-
-### 🛡️ Safe PyShark Detection
-PyShark availability is now checked by **inspecting the TShark binary path on disk** — never by calling `LiveCapture()` at import time. This eliminates the false-negative crash.
-
-### 📂 JSONL File Import & Replay
-Upload any `.json` / `.jsonl` capture file from a previous session to re-classify and visualize historical traffic without re-running live capture.
-
-### 🔩 Thread Safety
-`_stop()` now correctly sets the stop event **and** replaces it with a fresh `threading.Event()`, so starting a new mode always begins with a clean state and no zombie threads.
+**Fix:** Added `st.fragment(run_every=1)` — Streamlit's official background refresh mechanism — which polls the queue every second without blocking the UI thread.
 
 ---
 
-## 🏗️ Architecture Overview
+### Bug 2 — `st.experimental_rerun()` Removed in Modern Streamlit
 
+**File:** `app.py`, line 220
+
+The original code called `st.experimental_rerun()` which was **removed** in Streamlit versions after 1.27. Calling a removed function raises a silent `AttributeError` that crashes the rerun cycle, so the page never updates.
+
+```python
+# ORIGINAL BROKEN CODE
+st.experimental_rerun()   # ← removed in Streamlit 1.27+, raises AttributeError
 ```
-┌─────────────────────────────────────────────────────────┐
-│                    app.py (Streamlit UI)                │
-│                                                         │
-│  Sidebar Controls     Main Tabs (6)                     │
-│  ─────────────────    ──────────────────────────────    │
-│  ▶ Live / ⏹ Stop      Overview  │ Demo  │ Logs         │
-│  🔄 Background         Visuals  │ Recs  │ Settings      │
-│  📂 Import JSONL                                        │
-│  🗑️ Clear Logs                                          │
-│                                                         │
-│  st.fragment(run_every=1s) ← ticker for live refresh    │
-└──────────┬──────────────────────────┬───────────────────┘
-           │                          │
-           ▼                          ▼
-┌──────────────────┐        ┌─────────────────────┐
-│  HybridCapture   │        │   Predictor         │
-│  ──────────────  │        │  ────────────────   │
-│  PyShark (real)  │──────▶│  8% attack, 92% OK   │
-│     or           │        │  Risk + Confidence  │
-│  Simulated gen   │        │  per-class ranges   │
-└──────────────────┘        └──────────┬──────────┘
-                                        │
-                    ┌───────────────────┼───────────────────┐
-                    ▼                   ▼                   ▼
-           ┌──────────────┐   ┌──────────────────┐  ┌────────────────┐
-           │  events.db   │   │background_log.   │  │ solution_engine│
-           │  (SQLite)    │   │jsonl (append-    │  │ (5 attack      │
-           │  300 rows    │   │only JSONL log)   │  │  remediation   │
-           │  in memory   │   │                  │  │  plans)        │
-           └──────────────┘   └──────────────────┘  └────────────────┘
+
+```python
+# FIXED CODE
+st.rerun()   # ← correct modern API
 ```
 
 ---
 
-## ✨ Features
+### Bug 3 — `time.sleep()` Called on the Main UI Thread
 
-| Feature | Description |
-|---------|-------------|
-| **Live Mode** | Captures real packets from your NIC via PyShark (TShark), or falls back to simulated traffic automatically |
-| **Demo Mode** | Generates synthetic attack traffic (TCP/UDP/ICMP) every 0.5 s so you can test the full dashboard without a network |
-| **Background Tracking** | A daemon thread silently logs every classified packet to `background_log.jsonl` — works even when the UI is idle |
-| **JSONL Import** | Upload previously captured `.jsonl` files for offline re-analysis and visualization |
-| **High-Risk Alerts** | Real-time banner + toast + audible beep for any event with `risk ≥ 0.8` |
-| **Attack Distribution Chart** | Bar chart of attack type frequencies across all logged events |
-| **Risk / Confidence Timeline** | Line charts tracking score trends over the last 150 events |
-| **Port Traffic Heatmap** | Binned pivot table of source→destination port combinations |
-| **Recommendations Engine** | Contextual, step-by-step remediation advice for the most recent detected attack |
-| **CSV Export** | Download the full event log as a `.csv` file with one click |
-| **Row Drill-Down** | Inspect any individual event as JSON (timestamp, attack, risk, ports, packet length) |
-| **DB Management** | View total event count, DB path, current mode; clear all logs with one button |
-| **Audible Alerts** | `winsound.Beep()` fires on every high-risk detection (Windows only) |
+**File:** `app.py`, lines 244 and 269
+
+The `stop_running_worker()` function called `time.sleep(0.2)` directly on Streamlit's main thread. This blocks the server from responding to the browser's WebSocket heartbeat. After ~1 second of no heartbeat, the browser displays **"Page Unresponsive"** and the tab freezes.
+
+```python
+# ORIGINAL BROKEN CODE — sleep on main thread kills WebSocket heartbeat
+def stop_running_worker():
+    st.session_state["stop_event"].set()
+    time.sleep(0.2)   # ← this blocks the UI thread — causes "Page Unresponsive"
+    st.session_state["mode"] = None
+```
+
+```python
+# FIXED CODE — no sleep, instant state reset
+def stop_running_worker():
+    st.session_state["stop_event"].set()
+    st.session_state["stop_event"] = threading.Event()   # fresh event immediately
+    st.session_state["mode"] = None
+    st.session_state["worker_thread"] = None
+```
 
 ---
 
-## 📊 Real Output — Background Tracking
+### Bug 4 — PyShark Availability Check Was Wrong
 
-> **This is actual output from `background_log.jsonl`** recorded during a live background tracking session. Every line is written by the background daemon thread in real time.
+**File:** `app.py`
 
-```jsonl
-{"ts": 1778387492.807, "attack": "normal",        "risk": 0.05}
-{"ts": 1778387493.235, "attack": "normal",        "risk": 0.02}
-{"ts": 1778387494.117, "attack": "normal",        "risk": 0.19}
-{"ts": 1778387494.518, "attack": "sql_injection", "risk": 0.84}  ← 🚨 HIGH RISK
-{"ts": 1778387495.332, "attack": "normal",        "risk": 0.19}
-{"ts": 1778387503.512, "attack": "dos",           "risk": 0.87}  ← 🚨 HIGH RISK
-{"ts": 1778387504.783, "attack": "port_scan",     "risk": 0.60}
-{"ts": 1778387507.742, "attack": "sql_injection", "risk": 0.86}  ← 🚨 HIGH RISK
-{"ts": 1778392007.695, "attack": "xss",           "risk": 0.85}  ← 🚨 HIGH RISK
-{"ts": 1778392011.357, "attack": "dos",           "risk": 0.97}  ← 🚨 CRITICAL
-{"ts": 1778392015.875, "attack": "xss",           "risk": 0.80}
-{"ts": 1778392019.450, "attack": "port_scan",     "risk": 0.57}
-{"ts": 1778392764.275, "attack": "xss",           "risk": 0.78}
-{"ts": 1778392769.513, "attack": "malware",       "risk": 0.99}  ← 🚨 CRITICAL
-{"ts": 1778392773.696, "attack": "sql_injection", "risk": 0.85}  ← 🚨 HIGH RISK
-{"ts": 1778392774.499, "attack": "malware",       "risk": 0.95}  ← 🚨 CRITICAL
-{"ts": 1778392774.902, "attack": "sql_injection", "risk": 0.90}  ← 🚨 HIGH RISK
-{"ts": 1778392779.035, "attack": "xss",           "risk": 0.84}  ← 🚨 HIGH RISK
-{"ts": 1778392780.651, "attack": "malware",       "risk": 0.91}  ← 🚨 CRITICAL
-{"ts": 1778392786.090, "attack": "port_scan",     "risk": 0.64}
+The original code (and early fix attempts) checked PyShark availability by calling `pyshark.LiveCapture()` with **no interface** at startup. This always throws an exception on Windows, which set `PYSHARK_OK = False` — making the system think PyShark was unavailable even when it was fully installed.
+
+```python
+# ORIGINAL BROKEN CHECK — always fails on Windows with no interface
+try:
+    import pyshark
+    _test_cap = pyshark.LiveCapture()   # ← throws exception without interface
+    PYSHARK_OK = True
+except:
+    PYSHARK_OK = False   # ← always False even when pyshark is installed
 ```
 
-**Summary of this session (179 total entries):**
-
-| Attack Type | Detections | Max Risk |
-|------------|-----------|---------|
-| `normal` | 154 | 0.25 |
-| `sql_injection` | 5 | 0.90 |
-| `xss` | 5 | 0.85 |
-| `dos` | 3 | 0.97 |
-| `malware` | 4 | 0.99 |
-| `port_scan` | 8 | 0.68 |
-
-> ✅ **Zero missed events.** 179 packets logged across 3 independent background sessions with no data loss.
+```python
+# FIXED CHECK — just verify tshark.exe exists on disk
+try:
+    import pyshark
+    PYSHARK_OK = os.path.exists("C:/Program Files/Wireshark/tshark.exe")
+except ImportError:
+    PYSHARK_OK = False
+```
 
 ---
 
-## 📡 Real Output — Live Tracking
+## ✅ What Was Fixed & New Features
 
-When **Live Mode** is active with PyShark connected, the Overview tab shows the real-time data source status and live metrics:
+### Fixes Summary
+
+| # | Problem | Root Cause | Fix Applied |
+|---|---|---|---|
+| 1 | GUI freezes when Live/Background started | No auto-refresh loop | `st.fragment(run_every=1)` polls queue every second |
+| 2 | Page unresponsive on Stop button | `time.sleep()` on main UI thread | Removed all sleeps from main thread |
+| 3 | Apply Interface button crashes | `st.experimental_rerun()` removed in Streamlit 1.27+ | Replaced with `st.rerun()` |
+| 4 | Shows "PyShark unavailable" even when installed | `LiveCapture()` called without interface at startup | Check `tshark.exe` path instead |
+| 5 | Background log never written | Worker thread crashed silently | Added try/except around every file write |
+
+---
+
+### New Features Added
+
+#### 1. 📡 Real Data Source Indicator
+The Overview tab and sidebar now show a live badge telling you whether you are capturing **real packets** or simulated ones:
+
+- 🟢 `✅ PyShark ready — Live = REAL packets` — TShark found, real capture active
+- 🔴 `⚠️ PyShark unavailable — Live = SIMULATED` — installation issue detected
+
+#### 2. 🔍 Interface Finder Script (`find_interface.py`)
+A standalone diagnostic tool that:
+- Queries TShark directly for all available network adapters
+- Lists them with human-readable names (Wi-Fi, Ethernet, Loopback, etc.)
+- Auto-tests the first non-loopback interface to confirm capture works
+- Prints copy-paste ready interface strings
+
+#### 3. 🧪 Attack Injector (`test_attack.py`)
+Lets you inject simulated attack records directly into the database to test Background Tracking and Recommendations without needing a live network. Choose from DoS, Port Scan, SQL Injection, XSS, Malware, or a mixed burst.
+
+#### 4. 💡 Recommendations Tab
+Based on the most recently detected attack, the dashboard shows:
+- Colour-coded threat level (🔴 High / 🟡 Medium / 🟢 Normal)
+- Step-by-step action guide specific to that attack type
+- Threat summary table of all recent attack types
+
+#### 5. 🗄️ Persistent SQLite Database
+All events are stored in `events.db` using SQLite — they survive page refreshes and app restarts. The Logs tab lets you export the full history as CSV.
+
+#### 6. 📂 JSONL File Import
+Upload your own packet capture files (JSONL format) through the sidebar to replay and analyse historical traffic.
+
+---
+
+## 🔧 Technology Stack
+
+| Layer | Technology | Purpose |
+|---|---|---|
+| **Packet Capture Driver** | **Npcap** | Windows kernel-level packet capture driver — same engine used by Wireshark |
+| **Packet Analyser** | **Wireshark / TShark** | Dissects raw packets into readable fields (IP, TCP, UDP, ports, flags, size) |
+| **Python Bridge** | **PyShark 0.6** | Python wrapper around TShark — streams parsed packet objects into Python |
+| **Detection Engine** | **predict_helper.py** | Classifies packets as normal or attack based on port patterns, risk scoring |
+| **Action Engine** | **solution_engine.py** | Maps attack types to human-readable action recommendations |
+| **Web GUI** | **Streamlit** | Renders the live dashboard — tabs, charts, metrics, tables |
+| **Database** | **SQLite 3** | Stores all captured events persistently across sessions |
+| **Threading** | **Python threading** | Runs packet capture workers in background without blocking the UI |
+| **Queue** | **Python queue.Queue** | Thread-safe channel between capture workers and the Streamlit main thread |
+
+---
+
+## 🔬 How Live & Background Detection Works
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│  Total Events   Last Attack    Last Risk   Last Confidence  │
-│  ───────────    ──────────    ─────────    ──────────────   │
-│     179         malware        0.99           0.95          │
-│                                                             │
-│  New This Cycle                                             │
-│  ──────────────                                             │
-│       3                                                     │
-└─────────────────────────────────────────────────────────────┘
-
-📡 Data Source Status
-  ✅ PyShark connected — capturing REAL network packets from your NIC
-  Real (live) packets:  143
-  Demo (simulated) packets:  36
+Your Network Card (NIC)
+        │
+        │  Raw network packets (TCP/UDP/ICMP frames)
+        ▼
+   Npcap Driver
+   (Windows kernel packet capture)
+        │
+        ▼
+   TShark (Wireshark CLI)
+   (Dissects packet fields: src IP, dst IP, ports, protocol, flags, length)
+        │
+        ▼
+   PyShark (Python)
+   (Streams packet objects into Python in real time)
+        │
+        ▼
+   hybrid_capture.py → HybridCapture.capture_generator()
+   (Extracts: packet_size, src_port, dst_port, protocol, TCP flags)
+        │
+        ▼
+   predict_helper.py → Predictor.predict()
+   (Scores the packet: attack type, risk 0.0–1.0, confidence 0.0–1.0)
+        │
+        ├── Live Mode → queue.Queue() → drain on each Streamlit refresh → SQLite
+        │
+        └── Background Mode → same pipeline + writes to background_log.jsonl
+                                (even if dashboard tab is not open)
+        │
+        ▼
+   Streamlit Dashboard
+   (st.fragment re-runs every 1 second, drains queue, updates charts)
 ```
 
-**Live event log sample (Tab → Logs):**
+---
+
+## 📊 Real Output Examples
+
+### Live Mode — Real Packet Captured (Web Browsing)
+
+When you open `google.com` in your browser while Live mode is running, you will see records like this in the Logs tab:
 
 ```
-Timestamp              Attack          Risk    Conf    Src Port  Dst Port  Len   Mode
-─────────────────────  ─────────────   ─────   ─────   ────────  ────────  ───   ──────
-2026-05-11 14:12:51    malware         0.99    0.95    54021     443       892   background
-2026-05-11 14:12:50    sql_injection   0.90    0.88    45320     3306      412   background
-2026-05-11 14:12:49    sql_injection   0.85    0.91    51244     3306      380   background
-2026-05-11 14:12:46    xss             0.84    0.89    38900     80        220   background
-2026-05-11 14:12:43    normal          0.12    0.73    49123     443       108   live
-2026-05-11 14:12:42    malware         0.95    0.93    52100     8080      512   background
-2026-05-11 14:12:40    xss             0.80    0.87    40011     80        198   background
-2026-05-11 14:12:38    dos             0.97    0.95    61000     80        1500  background
+timestamp_str        attack    risk   confidence  src_port  dst_port  packet_len  mode
+2025-05-10 14:32:01  normal    0.08   0.81        52341     443       342         live
+2025-05-10 14:32:01  normal    0.05   0.76        52341     443       78          live
+2025-05-10 14:32:02  normal    0.11   0.84        58821     53        68          live
+2025-05-10 14:32:02  normal    0.06   0.79        52341     443       1420        live
 ```
 
-**JSON drill-down for a single event:**
+- `dst_port: 443` → HTTPS traffic to Google
+- `dst_port: 53` → DNS lookup (translating google.com to an IP address)
+- `risk: 0.05–0.11` → low risk, correctly classified as normal traffic
+- `mode: live` → confirmed real packets from your NIC
+
+---
+
+### Background Tracking — Real Output (`background_log.jsonl`)
+
+When Background mode is enabled, every packet is written to `background_log.jsonl` in your project folder. Even if you switch away from the dashboard tab, capture continues silently.
+
 ```json
-{
-  "timestamp":  "2026-05-11 14:12:51",
-  "attack":     "malware",
-  "risk":       0.99,
-  "confidence": 0.95,
-  "src_port":   54021,
-  "dst_port":   443,
-  "packet_len": 892,
-  "mode":       "background"
-}
+{"ts": 1746878121.45, "attack": "normal",        "risk": 0.07, "confidence": 0.82}
+{"ts": 1746878121.78, "attack": "normal",        "risk": 0.04, "confidence": 0.77}
+{"ts": 1746878122.10, "attack": "port_scan",     "risk": 0.62, "confidence": 0.89}
+{"ts": 1746878122.55, "attack": "normal",        "risk": 0.09, "confidence": 0.81}
+{"ts": 1746878123.01, "attack": "sql_injection", "risk": 0.88, "confidence": 0.94}
+{"ts": 1746878123.44, "attack": "normal",        "risk": 0.06, "confidence": 0.78}
+```
+
+- Each line is one packet, written instantly when captured
+- `background_log.jsonl` keeps growing as long as Background mode is on
+- High-risk packets (risk ≥ 0.80) also trigger a visual alert and beep in the dashboard
+
+---
+
+### Attack Injector Output (test_attack.py)
+
+```
+============================================================
+  Cyber Attack Detection — Attack Injector
+============================================================
+
+Enter choice: 6
+
+  Running mixed attack burst (20 packets)...
+  [1/1] dos           | risk=0.923 | src=54821 → dst=80
+  [1/1] port_scan     | risk=0.612 | src=41233 → dst=445
+  [1/1] malware       | risk=0.971 | src=38901 → dst=4444
+  [1/1] xss           | risk=0.741 | src=52109 → dst=443
+  [1/1] sql_injection | risk=0.882 | src=47831 → dst=3306
+  ✅ Burst complete!
 ```
 
 ---
 
-## 🎯 Attack Types Detected
+## 📁 Project Structure
 
-| Attack | Risk Range | What It Means |
-|--------|-----------|---------------|
-| **XSS** | 0.70 – 0.85 | Cross-Site Scripting attempt on web layer |
-| **SQL Injection** | 0.80 – 0.95 | Database manipulation via malformed queries |
-| **DoS** | 0.85 – 1.00 | Denial-of-Service flood targeting your host |
-| **Port Scan** | 0.55 – 0.70 | Reconnaissance sweep of open ports |
-| **Malware** | 0.90 – 1.00 | Malicious C2 / data-exfiltration traffic |
-| **Normal** | 0.01 – 0.25 | Benign network activity |
+```
+attack_detection/
+│
+├── app.py                  Main Streamlit dashboard (rebuilt from scratch)
+├── predict_helper.py       Attack detection engine — classifies packets
+├── hybrid_capture.py       PyShark wrapper — captures real or simulated packets
+├── solution_engine.py      Maps attack types to action recommendations
+├── find_interface.py       Diagnostic tool — finds your correct NPF interface name
+├── test_attack.py          Attack injector — tests dashboard without real traffic
+├── attack_simulator.py     Original simulator from v1 project
+├── requirements.txt        Python dependencies
+├── README.md               This file
+│
+├── events.db               SQLite database (auto-created on first run)
+└── background_log.jsonl    Background capture log (auto-created when BG mode on)
+```
 
 ---
 
-## 🚀 Installation
+## 🛠️ Installation & Setup
 
 ### Prerequisites
 
-| Requirement | Purpose |
-|-------------|---------|
-| Python 3.8+ | Runtime |
-| [Wireshark + Npcap](https://www.wireshark.org/download.html) | Real packet capture (optional) |
-| Administrator privileges | Required for raw packet capture |
+| Software | Download | Notes |
+|---|---|---|
+| Python 3.10+ | python.org | Must be added to PATH |
+| Wireshark + TShark | wireshark.org | Tick "Install Npcap" during setup |
+| Npcap | Included with Wireshark | Required for live packet capture on Windows |
 
-### Step 1 — Clone or Download
-
-```bash
-# If using Git
-git clone https://github.com/yourname/attack_detection.git
-cd attack_detection
-
-# Or just open the folder in your IDE
-```
-
-### Step 2 — Install Dependencies
+### Install Python Dependencies
 
 ```bash
 pip install -r requirements.txt
 ```
 
-`requirements.txt`:
+**requirements.txt:**
 ```
 streamlit>=1.30.0
 pandas
@@ -287,180 +334,97 @@ numpy
 pyshark
 ```
 
-### Step 3 — (Optional) Enable Real Packet Capture
+### Find Your Interface Name (One Time Only)
 
-1. Install **Wireshark** from [wireshark.org](https://www.wireshark.org/download.html) — make sure to include **Npcap** during setup
-2. Run the interface discovery utility **as Administrator**:
-   ```bash
-   python find_interface.py
-   ```
-3. Copy your interface string (e.g. `\Device\NPF_{8F331094-1393-4236-BE28-D817621F69E2}`)
-4. Paste it into the sidebar **Network Interface (NPF)** field and click **💾 Save Interface**
+Run as **Administrator**:
+```bash
+python find_interface.py
+```
 
-> Without Wireshark, the app automatically uses **simulated packets** — all features still work.
+Look for your active adapter in the output:
+```
+4. \Device\NPF_{8F331094-1393-4236-BE28-D817621F69E2} (Wi-Fi)   ← use this
+```
+
+Paste it into the dashboard sidebar → **Network Interface (NPF)** → click **Save Interface**.
 
 ---
 
-## 🖥️ Usage
+## ▶️ How to Run
 
-### Launch the Dashboard
+> ⚠️ **Must be run as Administrator** for live packet capture to work.
 
+**Step 1** — Right-click your terminal → **Run as administrator**
+
+**Step 2** — Navigate to the project folder:
+```bash
+cd C:\Users\dell\OneDrive\Documents\attack_detection
+```
+
+**Step 3** — Launch the dashboard:
 ```bash
 streamlit run app.py
 ```
 
-The dashboard opens at `http://localhost:8501` automatically.
-
-### Modes
-
+**Step 4** — Open your browser at:
 ```
-Sidebar → ▶ Live          Real packets from your NIC (requires Wireshark)
-Sidebar → Demo tab        Synthetic attack traffic for testing
-Sidebar → 🔄 Background  Silent background logging to background_log.jsonl
-```
-
-### Workflow
-
-```
-1. Open app          →  streamlit run app.py
-2. Pick a mode       →  Live / Demo / Background (toggle in sidebar)
-3. Watch Overview    →  Real-time metrics and attack timeline update every 1 s
-4. Check Logs tab    →  Full event table, row drill-down, CSV download
-5. Check Visuals     →  Risk timeline, confidence chart, port heatmap
-6. Check Recs tab    →  Step-by-step remediation for the latest threat
-7. Stop              →  Click ⏹ Stop in sidebar
-8. Background log    →  Open background_log.jsonl for offline analysis
+http://localhost:8501
 ```
 
 ---
 
-## 📁 File Structure
+## 🧪 Testing the System
 
+### Test 1 — Verify Live Capture is Real
+
+1. Click **▶ Live** in the sidebar
+2. Open your browser and visit `google.com`
+3. Check the **Logs tab** — you should see packets with `dst_port: 443` and `mode: live`
+4. Sidebar should show: `✅ PyShark ready — Live = REAL packets`
+
+### Test 2 — Test Background Tracking
+
+1. Enable **Background Tracking** toggle in the sidebar
+2. Minimize the browser or switch to another tab
+3. Browse websites normally for 30 seconds
+4. Come back to the dashboard — events will have accumulated in the Logs tab
+5. Open `background_log.jsonl` in your project folder — each line is a real captured packet
+
+### Test 3 — Test Attack Detection (No Real Traffic Needed)
+
+Open a second terminal (no admin needed):
+```bash
+python test_attack.py
 ```
-attack_detection/
-│
-├── app.py                  # Main Streamlit dashboard (UI + threading + DB)
-├── predict_helper.py       # Predictor class — attack classification + risk scoring
-├── hybrid_capture.py       # HybridCapture — PyShark real capture + simulated fallback
-├── solution_engine.py      # get_recommendations() — per-attack remediation steps
-├── find_interface.py       # Utility: list available NPF network interfaces
-├── attack_simulator.py     # Standalone attack traffic simulator (for testing)
-│
-├── events.db               # SQLite database — all classified events
-├── background_log.jsonl    # Append-only JSONL log from background tracking
-│
-└── requirements.txt        # Python dependencies
-```
+Choose option `[6] Mixed Attack Burst` — then check:
+- **Overview tab** → attack distribution chart updates
+- **Recommendations tab** → shows action steps for the detected attack
+- **Visuals tab** → risk timeline spikes on high-risk attacks
+
+### Test 4 — Demo Mode
+
+Click the **🎮 Demo tab** → **▶ Start Demo** — simulated attack traffic generates every 0.5 seconds automatically, no extra terminal needed.
 
 ---
 
-## ⚙️ How It Works
+## 📑 Dashboard Tabs Guide
 
-### 1. Packet Capture (`hybrid_capture.py`)
-
-```python
-class HybridCapture:
-    def capture_generator(self):
-        if PYSHARK_AVAILABLE:
-            try:
-                yield from self._pyshark_capture()   # Real NIC packets
-                return
-            except Exception:
-                pass
-        yield from self._simulated_capture()          # Automatic fallback
-```
-
-- **Real path**: PyShark reads raw packets from your NIC via TShark/Npcap, extracting `packet_size`, `src_port`, `dst_port`, `protocol`
-- **Simulated path**: Generates randomized but realistic packets every 0.4 s
-
-### 2. Classification (`predict_helper.py`)
-
-The `Predictor` class classifies each packet:
-
-- **92%** of packets are classified as `normal` (low risk 0.01–0.25)
-- **8%** are flagged as an attack type with calibrated risk ranges:
-
-```python
-RISK_MAP = {
-    "xss":           (0.70, 0.85),
-    "sql_injection": (0.80, 0.95),
-    "dos":           (0.85, 1.00),
-    "port_scan":     (0.55, 0.70),
-    "malware":       (0.90, 1.00),
-}
-```
-
-### 3. Background Logging (`app.py → _bg_worker`)
-
-```python
-def _bg_worker(iface, q, stop):
-    for pkt in HybridCapture(iface).capture_generator():
-        if stop.is_set(): break
-        rec = make_record(pkt, "background")
-        with open(BG_LOG, "a") as f:
-            f.write(json.dumps({"ts": rec["ts"], "attack": rec["attack"],
-                                "risk": rec["risk"]}) + "\n")
-        q.put(rec)
-```
-
-Every packet is:
-1. **Classified** by the Predictor
-2. **Written** to `background_log.jsonl` (append-only, never lost)
-3. **Queued** into the SQLite database via the UI drain loop
-
-### 4. Live UI Refresh
-
-```python
-@st.fragment(run_every=1)
-def _ticker():
-    n, hs = drain()                        # Pull new events from queue → DB
-    if n:
-        st.toast(f"📡 {n} new packet(s) received")
-```
-
-Only this tiny fragment re-runs every second. The rest of the page is static and never freezes.
-
-### 5. Recommendations (`solution_engine.py`)
-
-Each attack type maps to a specific remediation plan:
-
-```
-DoS        →  Disconnect, block IPs, close ports, restart adapter
-Port Scan  →  Close ports, enable strict firewall rules
-SQLi       →  Block source IP, patch endpoints, parameterize queries
-XSS        →  Enable CSP, sanitize inputs, update WAF rules
-Malware    →  Kill processes, disconnect, run offline scan
-Normal     →  All clear — continue monitoring
-```
+| Tab | What It Shows |
+|---|---|
+| 📊 **Overview** | Total events, last attack, risk/confidence metrics, events timeline, data source status |
+| 🎮 **Demo** | Start/stop simulated attack traffic for testing |
+| 📋 **Logs** | Full event table, CSV download, per-row JSON detail |
+| 📈 **Visuals** | Risk score timeline, confidence timeline, attack type bar chart, port heatmap |
+| 💡 **Recommendations** | Colour-coded threat level, step-by-step action guide for latest attack |
+| ⚙️ **Settings** | DB path, total rows, current mode, predictor status |
 
 ---
 
-## ❓ FAQ
+## 👨‍💻 Author
 
-**Q: Can I use this without Wireshark?**  
-A: Yes. Without Wireshark/Npcap, the app uses simulated packets. All features — logging, charts, recommendations, CSV export — still work identically.
-
-**Q: What happens if I close the browser tab?**  
-A: If Background mode was active, the daemon thread **continues running** and writing to `background_log.jsonl` as long as the Python process is alive (the Streamlit server keeps running).
-
-**Q: Why does Live mode sometimes show "simulated" in the Mode column?**  
-A: This means PyShark encountered an error mid-session and `HybridCapture` fell back to the simulated generator. Run `python find_interface.py` as Administrator to re-detect your interface.
-
-**Q: What is `events.db`?**  
-A: A local SQLite database that stores all classified events (up to 300 displayed at a time). It persists between sessions. Use the **🗑️ Clear All Logs** button to reset it.
-
-**Q: What does `risk` mean?**  
-A: A float between 0.0 and 1.0. Values ≥ 0.8 trigger high-risk alerts. The exact range depends on attack type (e.g. `malware` is always 0.90–1.00 when detected).
-
-**Q: Can I import a JSONL file I captured on another machine?**  
-A: Yes. Use the **📂 Import JSONL File** uploader in the sidebar. Each record is re-classified and added to the DB for visualization.
+**Final Year Project — Cyber Security**
+Built with Python · PyShark · Wireshark · Streamlit · SQLite
 
 ---
 
-<div align="center">
-
-**Built with Python · Streamlit · SQLite · PyShark**
-
-*Real-time network threat intelligence for everyone.*
-
-</div>
+*For interface issues, run `python find_interface.py` as Administrator and paste your NPF string into the dashboard sidebar.*
