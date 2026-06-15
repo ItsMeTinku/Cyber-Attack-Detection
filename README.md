@@ -28,7 +28,7 @@
 
 ---
 
-## 🏗️ System Architecture
+##  System Architecture
 
 ### How Detection Works — End to End
 
@@ -81,23 +81,23 @@ app.py  (Main Router + UI)
 
 ---
 
-## 📋 Quick Summary — Bugs Fixed & Features Added
+##  Quick Summary — Bugs Fixed & Features Added
 
 | # | Type | Problem | Fix |
 |---|---|---|---|
-| 1 | 🐛 Bug | GUI froze completely when Live or Background mode was started | `st.fragment(run_every=1)` — official Streamlit background refresh |
-| 2 | 🐛 Bug | "Page Unresponsive" browser error whenever Stop/Start was clicked | Removed all `time.sleep()` calls from the main UI thread |
-| 3 | 🐛 Bug | Apply Interface button crashed with `AttributeError` silently | Replaced `st.experimental_rerun()` with `st.rerun()` |
-| 4 | 🐛 Bug | Dashboard showed "PyShark unavailable" even with PyShark installed | Fixed startup check — no longer calls `LiveCapture()` without interface |
-| 5 | ✨ Feature | No way to tell if data was real or simulated | Live data source badge in sidebar and Overview tab |
-| 6 | ✨ Feature | Background tracking had no persistent output | `background_log.jsonl` written per packet, survives restarts |
-| 7 | ✨ Feature | No guidance on what to do when an attack is detected | Recommendations tab — step-by-step actions per attack type |
-| 8 | ✨ Feature | No way to test background tracking without real traffic | `test_attack.py` — injects attack records directly into the DB |
-| 9 | ✨ Feature | Finding the correct NPF interface was confusing | `find_interface.py` — auto-detects, lists, and tests all adapters |
+| 1 |  Bug | GUI froze completely when Live or Background mode was started | `st.fragment(run_every=1)` — official Streamlit background refresh |
+| 2 |  Bug | "Page Unresponsive" browser error whenever Stop/Start was clicked | Removed all `time.sleep()` calls from the main UI thread |
+| 3 |  Bug | Apply Interface button crashed with `AttributeError` silently | Replaced `st.experimental_rerun()` with `st.rerun()` |
+| 4 |  Bug | Dashboard showed "PyShark unavailable" even with PyShark installed | Fixed startup check — no longer calls `LiveCapture()` without interface |
+| 5 |  Feature | No way to tell if data was real or simulated | Live data source badge in sidebar and Overview tab |
+| 6 |  Feature | Background tracking had no persistent output | `background_log.jsonl` written per packet, survives restarts |
+| 7 |  Feature | No guidance on what to do when an attack is detected | Recommendations tab — step-by-step actions per attack type |
+| 8 |  Feature | No way to test background tracking without real traffic | `test_attack.py` — injects attack records directly into the DB |
+| 9 |  Feature | Finding the correct NPF interface was confusing | `find_interface.py` — auto-detects, lists, and tests all adapters |
 
 ---
 
-## 🐛 Bug Fix 1 — GUI Froze Completely When Live Mode Started
+##  Bug Fix 1 — GUI Froze Completely When Live Mode Started
 
 ### What Was Happening
 
