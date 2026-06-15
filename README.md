@@ -9,15 +9,15 @@
 
 1. [System Architecture](#️-system-architecture)
 2. [Quick Summary — Bugs Fixed & Features Added](#-quick-summary--bugs-fixed--features-added)
-3. [🐛 Bug Fix 1 — GUI Froze Completely When Live Mode Started](#-bug-fix-1--gui-froze-completely-when-live-mode-started)
-4. [🐛 Bug Fix 2 — Page Unresponsive on Every Stop/Start](#-bug-fix-2--page-unresponsive-on-every-stopstart)
-5. [🐛 Bug Fix 3 — Apply Interface Button Crashed Silently](#-bug-fix-3--apply-interface-button-crashed-silently)
-6. [🐛 Bug Fix 4 — PyShark Shown as Unavailable Even When Installed](#-bug-fix-4--pyshark-shown-as-unavailable-even-when-installed)
-7. [✨ New Feature 1 — Real vs Simulated Data Source Indicator](#-new-feature-1--real-vs-simulated-data-source-indicator)
-8. [✨ New Feature 2 — Background Tracking with Persistent Log](#-new-feature-2--background-tracking-with-persistent-log)
-9. [✨ New Feature 3 — Threat Recommendations Engine](#-new-feature-3--threat-recommendations-engine)
-10. [✨ New Feature 4 — Attack Injector for Testing](#-new-feature-4--attack-injector-for-testing)
-11. [✨ New Feature 5 — Interface Finder Diagnostic Tool](#-new-feature-5--interface-finder-diagnostic-tool)
+3. [ Bug Fix 1 — GUI Froze Completely When Live Mode Started](#-bug-fix-1--gui-froze-completely-when-live-mode-started)
+4. [ Bug Fix 2 — Page Unresponsive on Every Stop/Start](#-bug-fix-2--page-unresponsive-on-every-stopstart)
+5. [ Bug Fix 3 — Apply Interface Button Crashed Silently](#-bug-fix-3--apply-interface-button-crashed-silently)
+6. [ Bug Fix 4 — PyShark Shown as Unavailable Even When Installed](#-bug-fix-4--pyshark-shown-as-unavailable-even-when-installed)
+7. [ New Feature 1 — Real vs Simulated Data Source Indicator](#-new-feature-1--real-vs-simulated-data-source-indicator)
+8. [ New Feature 2 — Background Tracking with Persistent Log](#-new-feature-2--background-tracking-with-persistent-log)
+9. [ New Feature 3 — Threat Recommendations Engine](#-new-feature-3--threat-recommendations-engine)
+10. [ New Feature 4 — Attack Injector for Testing](#-new-feature-4--attack-injector-for-testing)
+11. [ New Feature 5 — Interface Finder Diagnostic Tool](#-new-feature-5--interface-finder-diagnostic-tool)
 12. [Real Output Examples](#-real-output-examples)
 13. [Technology Stack](#-technology-stack)
 14. [Project Structure](#-project-structure)
@@ -115,14 +115,14 @@ def live_capture_worker(interface, q, stop_event):
     for pkt in hc.capture_generator():
         if stop_event.is_set(): break
         q.put(("record", make_record(pkt)))
-        # ❌ Data goes into queue here
-        # ❌ But nothing tells Streamlit to re-render
-        # ❌ UI stays frozen indefinitely
+        #  Data goes into queue here
+        #  But nothing tells Streamlit to re-render
+        #  UI stays frozen indefinitely
 ```
 
 ```python
 # app.py — Original (bottom of file)
-# ❌ No auto-refresh loop existed at all
+#  No auto-refresh loop existed at all
 # The page only re-rendered if the user clicked something
 ```
 
@@ -130,7 +130,7 @@ def live_capture_worker(interface, q, stop_event):
 
 ```python
 # app.py — Fixed
-# ✅ st.fragment(run_every=1) is Streamlit's official background refresh.
+#  st.fragment(run_every=1) is Streamlit's official background refresh.
 # Only this small fragment re-runs every second — the rest of the page
 # stays alive and responsive. The Python main thread is never blocked.
 
