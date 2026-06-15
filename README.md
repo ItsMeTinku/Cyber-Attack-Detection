@@ -154,7 +154,7 @@ if st.session_state["mode"] is not None:
 
 ---
 
-## 🐛 Bug Fix 2 — Page Unresponsive on Every Stop/Start
+##  Bug Fix 2 — Page Unresponsive on Every Stop/Start
 
 ### What Was Happening
 
@@ -237,13 +237,13 @@ if st.sidebar.button("Apply Interface"):
 
 ---
 
-## 🐛 Bug Fix 4 — PyShark Shown as Unavailable Even When Installed
+##  Bug Fix 4 — PyShark Shown as Unavailable Even When Installed
 
 ### What Was Happening
 
 The dashboard sidebar showed:
 
-> ⚠️ **PyShark unavailable — Live = SIMULATED packets**
+>  **PyShark unavailable — Live = SIMULATED packets**
 
 Even after installing PyShark with `pip install pyshark`, running as Administrator, and having Wireshark fully installed.
 
@@ -289,7 +289,7 @@ except ImportError:
 
 ---
 
-## ✨ New Feature 1 — Real vs Simulated Data Source Indicator
+##  New Feature 1 — Real vs Simulated Data Source Indicator
 
 ### What Was Added
 
@@ -358,11 +358,11 @@ Each line is written the instant the packet is classified. High-risk packets (ri
 
 ---
 
-## ✨ New Feature 3 — Threat Recommendations Engine
+##  New Feature 3 — Threat Recommendations Engine
 
 ### What Was Added
 
-A dedicated **💡 Recommendations** tab that reads the most recently detected attack and shows:
+A dedicated ** Recommendations** tab that reads the most recently detected attack and shows:
 
 - Colour-coded threat level (🔴 High / 🟡 Medium / 🟢 Normal)
 - Human-readable summary of what the attack means
