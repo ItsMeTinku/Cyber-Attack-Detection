@@ -5,7 +5,7 @@
 
 ---
 
-## 📋 Table of Contents
+##  Table of Contents
 
 1. [System Architecture](#️-system-architecture)
 2. [Quick Summary — Bugs Fixed & Features Added](#-quick-summary--bugs-fixed--features-added)
@@ -204,7 +204,7 @@ def stop_running_worker():
 
 ---
 
-## 🐛 Bug Fix 3 — Apply Interface Button Crashed Silently
+##  Bug Fix 3 — Apply Interface Button Crashed Silently
 
 ### What Was Happening
 
