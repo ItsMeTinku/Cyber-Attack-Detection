@@ -319,7 +319,7 @@ if PYSHARK_OK:
 
 ---
 
-## ✨ New Feature 2 — Background Tracking with Persistent Log
+##  New Feature 2 — Background Tracking with Persistent Log
 
 ### What Was Added
 
