@@ -364,7 +364,6 @@ Each line is written the instant the packet is classified. High-risk packets (ri
 
 A dedicated ** Recommendations** tab that reads the most recently detected attack and shows:
 
-- Colour-coded threat level (🔴 High / 🟡 Medium / 🟢 Normal)
 - Human-readable summary of what the attack means
 - Step-by-step action guide specific to the detected attack type
 
