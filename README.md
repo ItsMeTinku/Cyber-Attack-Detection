@@ -619,7 +619,7 @@ Choose **[6] Mixed Attack Burst** → check:
 - **Visuals** → risk timeline spikes on high-risk events
 
 ### Test 4 — Demo Mode
-**🎮 Demo tab** → **▶ Start Demo** → simulated attack traffic generates every 0.5 seconds automatically.
+** Demo tab** → **▶ Start Demo** → simulated attack traffic generates every 0.5 seconds automatically.
 
 ---
 
@@ -643,4 +643,4 @@ Choose **[6] Mixed Attack Burst** → check:
 
 ---
 
-*For interface issues: run `python find_interface.py` as Administrator and paste your NPF string into the dashboard sidebar.*
+*For interface issues: run `python find_interface.py` as Administrator and paste your NPF string into the dashboard sidebar.* 
