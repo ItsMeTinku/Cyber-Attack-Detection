@@ -460,7 +460,7 @@ Copy the NPF string → paste into the dashboard sidebar → click **Save Interf
 
 ---
 
-## 📊 Real Output Examples
+##  Real Output Examples
 
 ### Live Mode — Real Packets from Web Browsing
 
