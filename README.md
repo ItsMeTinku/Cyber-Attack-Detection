@@ -300,7 +300,7 @@ Sidebar — when PyShark + TShark are confirmed:
 ✅ PyShark ready — Live = REAL packets
 
 Sidebar — when PyShark or TShark is missing:
-⚠️ PyShark unavailable — Live = SIMULATED
+  PyShark unavailable — Live = SIMULATED
    Run find_interface.py to diagnose
 ```
 
