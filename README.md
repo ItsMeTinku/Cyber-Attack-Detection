@@ -492,7 +492,7 @@ And a system beep plays (Windows only, via `winsound`).
 
 ---
 
-## 🔧 Technology Stack
+##  Technology Stack
 
 | Layer | Technology | Purpose |
 |---|---|---|
