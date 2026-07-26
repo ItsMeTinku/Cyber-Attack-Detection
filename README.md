@@ -642,3 +642,6 @@ Choose **[6] Mixed Attack Burst** → check:
 ---
 
 *For interface issues: run `python find_interface.py` as Administrator and paste your NPF string into the dashboard sidebar.* 
+<div align="center">
+
+### Thanks for reading 
