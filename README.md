@@ -381,7 +381,7 @@ def get_recommendations(attack_type: str):
             ],
         },
         "sql_injection": {
-            "message": "💉 SQL Injection Detected — Protect your database:",
+            "message": " SQL Injection Detected — Protect your database:",
             "steps": [
                 "Block the source IP immediately.",
                 "Review and patch vulnerable endpoints.",
