@@ -636,7 +636,7 @@ Choose **[6] Mixed Attack Burst** → check:
 
 ##  Project Info
 
-**Project:** Cyber Security — Final Year Project  
+**Project:** Cyber Security — Final Year Project  To insure the system securities 
 **Tech Stack:** Python · PyShark · Wireshark/TShark · Npcap · Streamlit · SQLite · Threading
 
 ---
