@@ -508,7 +508,7 @@ And a system beep plays (Windows only, via `winsound`).
 
 ---
 
-## 📁 Project Structure
+##  Project Structure
 
 ```
 attack_detection/
