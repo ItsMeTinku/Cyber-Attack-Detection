@@ -429,7 +429,7 @@ No admin rights needed — writes directly to `events.db`.
 
 ---
 
-## ✨ New Feature 5 — Interface Finder Diagnostic Tool
+##  New Feature 5 — Interface Finder Diagnostic Tool
 
 ### What Was Added
 
